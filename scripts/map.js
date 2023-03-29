@@ -125,18 +125,11 @@ $(window).on('load', function() {
           point['Icon Color']
         );
 
-      var buttons = '';
-      if ( point?.actionButtons !== undefined && Array.isArray(point.actionButtons) && point.actionButtons.length > 0 ) {
-        point.actionButtons.forEach(btnProps => {
-          buttons += renderButton(btnProps, point)
-        });
-      }
-
       if (point.Latitude !== '' && point.Longitude !== '') {
         var marker = L.marker([point.Latitude, point.Longitude], {icon: icon})
           .bindPopup("<b>" + point['Name'] + '</b><br>' +
           (point['Image'] ? ('<img src="' + point['Image'] + '"><br>') : '') +
-          point['Description'] + '<br>' + buttons);
+          point['Description']);
 
         if (layers !== undefined && layers.length !== 1) {
           marker.addTo(layers[point.Group]);
@@ -283,28 +276,8 @@ $(window).on('load', function() {
   allPolygonLegends = [];
   allPolygonLayers = [];
   allPopupProperties = [];
-  allPopupActionButtons = [];
   allTextLabelsLayers = [];
   allTextLabels = [];
-
-  /**
-   * Load polygon Geo JSON from setting _polygonsGeojsonURL
-   */
-  function loadPolygonsGeoJson(p) {
-    // Load geojson
-    $.getJSON(getPolygonSetting(p, '_polygonsGeojsonURL').trim(), function(data) {
-        geoJsonLayer = L.geoJson(data, {
-          onEachFeature: onEachFeature,
-          pointToLayer: function(feature, latlng) {
-            return L.circleMarker(latlng, {
-              className: 'geojson-point-marker'
-            });
-          }
-        });
-        allGeojsons.push(geoJsonLayer);
-        loadAllGeojsons(p+1);
-    });
-  }
 
   function loadAllGeojsons(p) {
     if (p < polygonSettings.length && getPolygonSetting(p, '_polygonsGeojsonURL').trim()) {
@@ -314,19 +287,19 @@ $(window).on('load', function() {
       for (i in popupProperties) { popupProperties[i] = popupProperties[i].split(','); }
       allPopupProperties.push(popupProperties);
 
-      var actionButtonsURL  = getPolygonSetting(p, '_popupActionButtonsURL').trim();
-      if ( actionButtonsURL ) {
-
-        $.getJSON(actionButtonsURL).then(function (data) {
-          allPopupActionButtons.push(data)
-        }).always(function () {
-          loadPolygonsGeoJson(p);
-        })
-
-      } else {
-        loadPolygonsGeoJson(p);
-      }
-
+      // Load geojson
+      $.getJSON(getPolygonSetting(p, '_polygonsGeojsonURL').trim(), function(data) {
+          geoJsonLayer = L.geoJson(data, {
+            onEachFeature: onEachFeature,
+            pointToLayer: function(feature, latlng) {
+              return L.circleMarker(latlng, {
+                className: 'geojson-point-marker'
+              });
+            }
+          });
+          allGeojsons.push(geoJsonLayer);
+          loadAllGeojsons(p+1);
+      });
     } else {
       processAllPolygons();
     }
@@ -616,29 +589,6 @@ $(window).on('load', function() {
       }
     }
 
-    buttons = allPopupActionButtons[polygon];
-    for ( i in buttons ) {
-      var btnProps = buttons[i];
-
-      // Skip the button with empty label
-      if ( !btnProps['label'] ) continue;
-
-      // Replace ## in URL if exists
-      var url = btnProps?.action?.url || ''
-      if ( url ) {
-        var matches = url.match(/##(.*?)##/g);
-        if ( matches && Array.isArray(matches) && matches.length > 0 ) {
-          matches.forEach((match) => {
-            var key = match.replace(/##/g, "");
-            var val = feature.properties[key];
-            if (val) url = url.replace(match, val);
-          })
-        }
-      }
-
-      info += renderButton(btnProps, feature.properties);
-    }
-
     layer.bindPopup(info);
 
     
@@ -680,47 +630,8 @@ $(window).on('load', function() {
     var layers;
     var group = '';
     if (points && points.length > 0) {
-      // Parse point's meta from string to JSON object
-      points.forEach(point => {
-        try {
-          let pointMeta = point?.Point_Meta || '{}';
-          if ( pointMeta ) pointMeta = JSON.parse(pointMeta);
-          point.Point_Meta = pointMeta;
-        } catch (err) {}
-      })
-
-      // Before mapping a point on the map, iterate over the points to check if the point shows buttons in its popup.
-      let poinButtons = []; // Create an array to store the results
-      let deferreds   = []; // Create an array to store the deferred objects returned by $.getJSON
-
-      // Loop through the points array to get action button's setting url and make a $.getJSON request for each one
-      $.each(points, function(idx, point) {
-        var deferred = null;
-        var url      = point?.Buttons || '';
-        
-        if (url.trim()) {
-          deferred = $.getJSON(url).done(function(data) {
-            poinButtons.push( { index: idx, buttons: data } );
-          }).fail(function(jqxhr, textStatus, error) {
-            poinButtons.push( { index: idx, buttons: [] } );
-          })
-        } else {
-          poinButtons.push( { index: idx, buttons: [] } );
-        }
-
-        // Add the Deferred object to the array
-        deferreds.push(deferred);
-      });
-
-      // When all the Deferred objects have been resolved or rejected, do mapping points
-      $.when.apply($, deferreds).always(function() {
-        poinButtons.forEach(item => {
-          points[item['index']]['actionButtons'] = item['buttons'] || [];
-        });
-
-        layers = determineLayers(points);
-        group = mapPoints(points, layers);
-      });
+      layers = determineLayers(points);
+      group = mapPoints(points, layers);
     } else {
       completePoints = true;
     }
@@ -848,12 +759,6 @@ $(window).on('load', function() {
         setTimeout(showMap, 50);
       }
     }
-
-    // Event handler for action buttons
-    $('div').on('click', '.rta-button.open_new_tab', function() {
-      var url = $(this).attr('data-url')
-      if ( url ) window.open(url, '_blank')
-    })
 
     // Add Google Analytics if the ID exists
     var ga = getSetting('_googleAnalytics');
@@ -1047,34 +952,6 @@ $(window).on('load', function() {
     var res = string.match(/(http(s)?:\/\/.)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)/g);
     return (res !== null)
   };
-
-  /**
-   * Generate a HTML for button tag
-   */
-  function renderButton(props, meta) {
-    let propsStr = JSON.stringify(props);
-    let matches  = propsStr.match(/##(.*?)##/g);
-
-    if ( matches && Array.isArray(matches) && matches.length > 0 ) {
-      matches.forEach((match) => {
-        var key  = match.replace(/##/g, "");
-        var expr = '$.' + key;
-        var val  = jsonPath(meta, expr);
-        if (val && Array.isArray(val)) propsStr = propsStr.replace(match, val[0]);
-      });
-    }
-
-    props = JSON.parse(propsStr);
-
-    return `
-      <button
-        class="btn rta-button ${props?.action?.type || ''}"
-        style="color: ${props?.label_color || '#fff'}; background-color: ${props?.background_color || '#337ab7'}; border-color: ${props?.border_color || '#2e6da4'}; margin-top: 2px;"
-        data-url="${props?.action?.url || ''}"
-      >${props.label}
-      </button>
-    `;
-  }
 
   /**
    * Loads the basemap and adds it to the map
